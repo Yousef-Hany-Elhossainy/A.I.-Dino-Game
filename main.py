@@ -1,6 +1,10 @@
 import pygame
 import os
 import random
+import math
+import sys
+import neat
+
 
 pygame.init()
 
@@ -166,12 +170,23 @@ class Bird(Obstacle):
         SCREEN.blit(self.image[self.index//5], self.rect)
         self.index += 1
 
+def remove(index):
+    dinosaurs.pop(index)
+    ge.pop(index)
+    nets.pop(index)
 
-def main():
-    global game_speed, x_pos_bg, y_pos_bg, points, obstacles
+def distance(pos_a, pos_b):
+    dx = pos_a[0]-pos_b[0]
+    dy = pos_a[1]-pos_b[1]
+    return math.sqrt(dx**2+dy**2)
+
+def main(genomes,config):
+    global game_speed, x_pos_bg, y_pos_bg, points, obstacles,dinosaurs,ge,nets
     run = True
     clock = pygame.time.Clock()
-    player = Dinosaur()
+    dinosaurs = []
+    ge =[]
+    nets = []
     cloud = Cloud()
     game_speed = 20
     x_pos_bg = 0
@@ -180,6 +195,13 @@ def main():
     font = pygame.font.Font('freesansbold.ttf', 20)
     obstacles = []
     death_count = 0
+
+    for genome_id, genome in genomes:
+        dinosaurs.append(Dinosaur())
+        ge.append(genome)
+        net = neat.nn.FeedForwardNetwork.create(genome, config)
+        nets.append(net)
+        genome.fitness = 0
     
     def score():       
         global points, game_speed
@@ -208,13 +230,18 @@ def main():
                 run = False
 
         SCREEN.fill((255, 255, 255))
-        userInput = pygame.key.get_pressed()
 
-        player.draw(SCREEN)
-        player.update(userInput)
+        if not AI_player:
+            userInput = pygame.key.get_pressed()
+        else:
+            userInput = 1
+
+        for dinosaur in dinosaurs:
+            dinosaur.draw(SCREEN)
+            dinosaur.update(userInput)
 
         if len(obstacles) == 0:
-            if random.randint(0, 2) == 0:
+            if random.randint(0, 2) == 0: 
                 obstacles.append(SmallCactus(SMALL_CACTUS))
             elif random.randint(0, 2) == 1:
                 obstacles.append(LargeCactus(LARGE_CACTUS))
@@ -224,12 +251,31 @@ def main():
         for obstacle in obstacles:
             obstacle.draw(SCREEN)
             obstacle.update()
-            if player.dino_rect.colliderect(obstacle.rect):
-                pygame.time.delay(2000)
-                game_speed = 0                
-                death_count += 1
-                menu(death_count)
-                run = False
+            for i,dinosaur in enumerate(dinosaurs):
+                if dinosaur.dino_rect.colliderect(obstacle.rect):
+                    # pygame.time.delay(2000)                
+                    # game_speed = 0                
+                    # death_count += 1
+                    # menu(death_count)
+                    # run = False
+                    ge[i].fitness -= 1
+                    remove(i)
+
+        if AI_player:
+            for i, dinosaur in enumerate(dinosaurs):
+                output = nets[i].activate((dinosaur.rect.y,distance((dinosaur.rect.x, dinosaur.rect.y), obstacle.rect.midtop),obstacle.type))
+            if output[0] > 0.5 and dinosaur.rect.y == dinosaur.Y_POS:
+                dinosaur.dino_jump = True
+                dinosaur.dino_run = False
+                dinosaur.dino_duck = False
+
+
+
+        if len(dinosaurs) == 0:
+            game_speed = 0                
+            death_count += 1
+            menu(death_count)
+            run = False
 
         background()
 
@@ -243,8 +289,27 @@ def main():
 
 
 def menu(death_count):
-    global points,high_score 
+    global points,high_score,AI_player
     run = True
+    AI_player = False
+    
+    def run(config_path):
+        global pop
+        config = neat.config.Config(
+            neat.DefaultGenome,
+            neat.DefaultSpeciesSet,
+            neat.DefaultReproduction,
+            neat.DefaultStagnation,
+            config_path
+        ) 
+
+        pop = neat.Population(config)
+        pop.run(main,50)
+
+        
+
+
+
     while run:
         SCREEN.fill((255, 255, 255))
         font = pygame.font.Font('freesansbold.ttf', 30)
@@ -272,8 +337,15 @@ def menu(death_count):
             if event.type == pygame.QUIT:
                 run = False
             elif event.type == pygame.KEYDOWN:
-                main()
+                AI_player = True
+                if __name__ == '__main__':
+                    local_dir = os.path.dirname(__file__)
+                    config_path = os.path.join(local_dir,'config.txt')
+                    run(config_path)
+                
                 run = False
 
 
 menu(death_count=0)
+
+
